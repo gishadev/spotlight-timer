@@ -1,0 +1,811 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Sand Timer</title>
+<meta name="description" content="A free, ad-free sand timer for spotlight time in online tabletop sessions.">
+<meta name="theme-color" content="#1d1a33">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Nunito:wght@600;800&display=swap">
+<style>
+/* Layout: one centered column (spotlight name, hourglass, countdown, controls). Clean mode keeps only name, hourglass and countdown, scaled to the window. */
+:root {
+  --night: #1d1a33;
+  --night-2: #2a2650;
+  --ink: #120e1f;
+  --wood: #c8702f;
+  --wood-dark: #8a4520;
+  --sand: #f6c445;
+  --sand-shade: #d9921c;
+  --text: #f4eedd;
+  --muted: #a9a3c8;
+  --danger: #ff6a5c;
+  --chip: #35305e;
+  --font-display: "Lilita One", "Arial Rounded MT Bold", "Trebuchet MS", sans-serif;
+  --font-body: "Nunito", "Segoe UI", system-ui, sans-serif;
+  --gh: 400px;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; min-height: 100%; }
+body {
+  background: radial-gradient(ellipse at 50% 30%, var(--night-2), var(--night) 70%) fixed;
+  background-color: var(--night);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-weight: 600;
+  overflow-x: hidden;
+}
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* top bar */
+.bar {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  padding: 10px max(12px, env(safe-area-inset-right, 0px)) 0 max(12px, env(safe-area-inset-left, 0px));
+}
+.icons { display: flex; gap: 6px; align-items: center; }
+.icon {
+  width: 40px; height: 40px; padding: 0; border-radius: 12px;
+  display: grid; place-items: center;
+  background: var(--chip); color: var(--text);
+  box-shadow: 0 3px 0 var(--ink);
+}
+.icon svg { width: 22px; height: 22px; }
+.icon[aria-pressed="true"] { background: var(--sand); color: var(--ink); }
+.pill { font-size: .95rem; padding: 7px 14px; border-radius: 999px; background: var(--chip); color: var(--text); box-shadow: 0 3px 0 var(--ink); }
+.menu-wrap { position: relative; }
+.menu {
+  position: absolute; right: 0; top: 48px; z-index: 10; width: 250px;
+  background: var(--night-2); border: 3px solid var(--ink); border-radius: 14px;
+  box-shadow: 0 6px 0 var(--ink); padding: 12px; display: grid; gap: 10px; font-size: .92rem;
+}
+.menu label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.menu select {
+  font: inherit; font-weight: 800; color: var(--sand); background: var(--ink);
+  border: 3px solid var(--chip); border-radius: 10px; padding: 4px 8px;
+}
+.menu .toggle { justify-content: flex-start; }
+.menu .note { margin: 0; color: var(--muted); font-size: .8rem; line-height: 1.35; }
+.menu .pill { justify-self: start; }
+
+.wrap {
+  max-width: 480px;
+  margin: 0 auto;
+  padding-block: 8px 28px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+.who {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center;
+  font-family: var(--font-display);
+  font-size: 1.25rem; letter-spacing: 0.03em; color: var(--muted);
+}
+.who input {
+  font: inherit; color: var(--sand); background: transparent;
+  border: none; border-bottom: 3px dashed var(--chip);
+  width: 10ch; text-align: center; padding: 2px 4px;
+}
+.who input:focus { outline: none; border-bottom-color: var(--sand); }
+.who b { color: var(--sand); font-weight: 400; }
+.who.clean-only { display: none; }
+canvas { display: block; cursor: pointer; width: calc(var(--gh) / 1.6); height: var(--gh); touch-action: manipulation; }
+.time {
+  font-family: var(--font-display);
+  font-size: calc(var(--gh) * .19);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  text-shadow: 0 4px 0 var(--ink);
+  transition: color .2s;
+  white-space: nowrap;
+}
+.time.low { color: var(--danger); }
+.time.done { color: var(--danger); font-size: min(calc(var(--gh) * .16), calc((100vw - 32px) / 5)); animation: pop .5s ease-in-out infinite alternate; }
+@keyframes pop { to { transform: scale(1.08); } }
+
+.row { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; align-items: center; }
+button {
+  font-family: var(--font-display);
+  font-size: 1.15rem; letter-spacing: 0.03em;
+  border: 3px solid var(--ink); border-radius: 14px;
+  padding: 10px 22px; cursor: pointer;
+  box-shadow: 0 4px 0 var(--ink);
+  transition: transform .08s, box-shadow .08s;
+}
+button:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
+button:focus-visible, input:focus-visible, select:focus-visible, canvas:focus-visible { outline: 3px solid var(--sand); outline-offset: 3px; }
+.primary { background: var(--sand); color: var(--ink); min-width: 9ch; }
+.secondary { background: var(--wood); color: var(--ink); }
+.chips button {
+  font-size: 1rem; padding: 6px 12px; border-radius: 999px;
+  background: var(--chip); color: var(--text); box-shadow: 0 3px 0 var(--ink);
+}
+.chips button[aria-pressed="true"] { background: var(--sand); color: var(--ink); }
+.custom { gap: 6px; color: var(--muted); font-size: .95rem; }
+.custom button { font-size: 1rem; padding: 4px 12px; border-radius: 10px; background: var(--chip); color: var(--text); box-shadow: 0 3px 0 var(--ink); }
+.custom input {
+  width: 5ch; font-family: var(--font-display); font-size: 1.2rem; text-align: center;
+  background: var(--ink); color: var(--sand);
+  border: 3px solid var(--chip); border-radius: 10px; padding: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.hint { margin: 0; font-size: .85rem; color: var(--muted); text-align: center; line-height: 1.9; }
+.hint kbd { font-family: var(--font-body); font-weight: 800; background: var(--chip); border-radius: 6px; padding: 1px 6px; color: var(--text); }
+.toggle { display: flex; align-items: center; gap: 6px; color: var(--muted); cursor: pointer; }
+.toggle input { accent-color: var(--sand); width: 18px; height: 18px; margin: 0; }
+.audio-hint { font-size: .9rem; padding: 6px 14px; border-radius: 999px; background: var(--wood); color: var(--ink); box-shadow: 0 3px 0 var(--ink); }
+
+/* floating toolbar (clean mode only) */
+.toolbar {
+  position: fixed; left: 50%; top: max(8px, env(safe-area-inset-top, 0px)); transform: translateX(-50%);
+  display: none; gap: 6px; padding: 6px; z-index: 20; white-space: nowrap;
+  background: rgba(18, 14, 31, .85); border: 3px solid var(--ink); border-radius: 16px;
+  opacity: 0; pointer-events: none; transition: opacity .3s;
+}
+.toolbar button { font-size: .9rem; padding: 5px 10px; min-width: 0; border-radius: 10px; box-shadow: 0 3px 0 var(--ink); }
+.toolbar .ghost { background: var(--chip); color: var(--text); }
+.toolbar.show { opacity: 1; pointer-events: auto; }
+
+body.clean .bar, body.clean .controls, body.clean label.who { display: none; }
+body.clean .toolbar { display: flex; }
+body.clean .wrap { max-width: none; min-height: 100vh; min-height: 100dvh; justify-content: center; padding: 12px 16px; gap: 8px; }
+body.clean .who.clean-only:not(:empty) { display: block; text-align: center; line-height: 1.2; }
+body.clean.hide-cursor { cursor: none; }
+body.clean.hide-cursor canvas { cursor: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .time.done { animation: none; }
+  button, .toolbar { transition: none; }
+}
+</style>
+</head>
+<body>
+<header class="bar">
+  <button class="pill" id="copy" type="button">Copy link</button>
+  <div class="icons">
+    <div class="menu-wrap">
+      <button class="icon" id="soundBtn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="soundMenu" aria-label="Sound settings" title="Sound settings">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 17.5a3 3 0 1 1-2-2.83V5.5l12-2.5v11.5a3 3 0 1 1-2-2.83V6.9L9 8.6z"/></svg>
+      </button>
+      <div class="menu" id="soundMenu" hidden>
+        <label for="soundSel">End sound
+          <select id="soundSel">
+            <option value="chime">Chime</option>
+            <option value="bell">Bell</option>
+            <option value="gong">Gong</option>
+            <option value="drum">Drum</option>
+            <option value="off">Off</option>
+          </select>
+        </label>
+        <label class="toggle" for="tick"><input id="tick" type="checkbox"> Tick during the last seconds</label>
+        <button class="pill" id="test" type="button">Play sound</button>
+        <p class="note">Screen sharing? Most voice apps only send audio when "share audio" is turned on as you start the share.</p>
+      </div>
+    </div>
+    <button class="icon" id="mute" type="button" aria-pressed="false" aria-label="Mute (M)" title="Mute (M)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor"/><path class="on" d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/><path class="off" d="M16 9.5l5 5m0-5l-5 5" style="display:none"/></svg>
+    </button>
+    <button class="icon" id="cleanBtn" type="button" aria-pressed="false" aria-label="Clean mode (H)" title="Clean mode (H)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>
+    </button>
+    <button class="icon" id="fsBtn" type="button" aria-pressed="false" aria-label="Full screen (F)" title="Full screen (F)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+    </button>
+  </div>
+</header>
+
+<main class="wrap">
+  <label class="who" for="who">Spotlight on <input id="who" type="text" maxlength="20" placeholder="…" autocomplete="off" spellcheck="false" aria-label="Who has the spotlight"></label>
+  <div class="who clean-only" id="whoClean"></div>
+
+  <canvas id="glass" role="img" aria-label="Hourglass timer. Click it or press Space to start or pause."></canvas>
+
+  <div class="time" id="time" aria-hidden="true">0:45</div>
+  <div class="sr-only" id="sr" aria-live="polite" aria-atomic="true"></div>
+  <button class="audio-hint" id="audioHint" type="button" hidden>Click once to enable sound</button>
+
+  <div class="row controls">
+    <button class="primary" id="go" type="button">Start</button>
+    <button class="secondary" id="flip" type="button">Flip</button>
+  </div>
+
+  <div class="row chips controls" id="chips" aria-label="Presets"></div>
+
+  <div class="row custom controls">
+    <span>Custom</span>
+    <button id="minus" type="button" aria-label="5 seconds less">−5</button>
+    <input id="secs" type="number" min="5" max="3600" step="5" value="45" aria-label="Seconds">
+    <button id="plus" type="button" aria-label="5 seconds more">+5</button>
+    <span>sec</span>
+  </div>
+
+  <p class="hint controls"><kbd>Space</kbd> start/pause · <kbd>R</kbd> flip · <kbd>1</kbd>–<kbd>8</kbd> presets · <kbd>←</kbd><kbd>→</kbd> ±5s · <kbd>H</kbd> clean · <kbd>F</kbd> full screen · <kbd>M</kbd> mute</p>
+</main>
+
+<div class="toolbar" id="toolbar">
+  <button class="primary" id="tbGo" type="button">Start</button>
+  <button class="secondary" id="tbFlip" type="button">Flip</button>
+  <button class="ghost" id="tbExit" type="button">Exit clean</button>
+</div>
+
+<script>
+(() => {
+  'use strict';
+  const DEF = { t: 45, sound: 'chime', presets: [15, 30, 45, 60, 90, 120], warn: 5 };
+  const SOUNDS = ['chime', 'bell', 'gong', 'drum', 'off'];
+  const MIN = 5, MAX = 3600, FLIP_MS = 650;
+  const $ = id => document.getElementById(id);
+  const css = getComputedStyle(document.documentElement);
+  const C = k => css.getPropertyValue(k).trim();
+  const col = {
+    ink: C('--ink'), wood: C('--wood'), woodDark: C('--wood-dark'),
+    sand: C('--sand'), sandShade: C('--sand-shade'), danger: C('--danger')
+  };
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ---------- storage (errors ignored) ----------
+  const load = k => { try { return localStorage.getItem('sandtimer-' + k); } catch (e) { return null; } };
+  const save = (k, v) => { try { localStorage.setItem('sandtimer-' + k, v); } catch (e) {} };
+
+  // ---------- settings: URL wins, then localStorage, then defaults ----------
+  const clampDur = n => Math.max(MIN, Math.min(MAX, Math.round(n)));
+  function parseDur(v) {
+    if (v == null) return null;
+    const s = String(v).trim().toLowerCase();
+    let m, n;
+    if (/^\d+(\.\d+)?$/.test(s)) n = +s;
+    else if ((m = s.match(/^(\d+):([0-5]?\d)$/))) n = +m[1] * 60 + +m[2];
+    else if ((m = s.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/)) && (m[1] || m[2] || m[3])) n = (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0);
+    else return null;
+    return clampDur(n);
+  }
+  const q = new URLSearchParams(location.search);
+  let duration = parseDur(q.get('t')) ?? parseDur(load('secs')) ?? DEF.t;
+  let name = (q.has('name') ? q.get('name') : load('name') || '').slice(0, 20);
+  let sound = SOUNDS.includes(q.get('sound')) ? q.get('sound') : SOUNDS.includes(load('sound')) ? load('sound') : DEF.sound;
+  let muted = load('mute') === '1';
+  let tick = load('tick') === '1';
+  let presets = (q.get('presets') || '').split(',').map(parseDur).filter(n => n != null).slice(0, 8);
+  if (!presets.length) presets = DEF.presets.slice();
+  const warnQ = q.get('warn');
+  const warn = /^\d+$/.test(warnQ || '') ? Math.min(MAX, +warnQ) : DEF.warn;
+  const autostart = q.get('autostart') === '1';
+  let clean = q.get('clean') === '1';
+
+  function buildUrl() {
+    const p = new URLSearchParams();
+    if (duration !== DEF.t) p.set('t', duration);
+    if (name) p.set('name', name);
+    if (autostart) p.set('autostart', '1');
+    if (sound !== DEF.sound) p.set('sound', sound);
+    if (clean) p.set('clean', '1');
+    if (presets.join() !== DEF.presets.join()) p.set('presets', presets.join(','));
+    if (warn !== DEF.warn) p.set('warn', warn);
+    const qs = p.toString().replace(/%2C/g, ',');
+    return location.href.split(/[?#]/)[0] + (qs ? '?' + qs : '') + location.hash;
+  }
+  const syncUrl = () => { try { history.replaceState(null, '', buildUrl()); } catch (e) {} };
+
+  // ---------- elements ----------
+  const timeEl = $('time'), goBtn = $('go'), tbGo = $('tbGo'), secsIn = $('secs'), chipsEl = $('chips');
+  const whoIn = $('who'), whoClean = $('whoClean'), sr = $('sr'), hintBtn = $('audioHint');
+  const cv = $('glass'), ctx = cv.getContext('2d');
+
+  // ---------- timer state (time from performance.now, never frame counting) ----------
+  let phase = 'ready';        // ready | running | paused | done
+  let accMs = 0;              // elapsed before the current running segment
+  let segStart = 0;           // performance.now() when the current segment began
+  let finishTimer = 0;
+  let flipStart = -1, flipFrom = 1, startAfterFlip = false;
+  let lastSec = -1, lastLabel = '';
+
+  const elapsed = () => phase === 'running' ? accMs + performance.now() - segStart : accMs;
+  const remaining = () => Math.max(0, duration * 1000 - elapsed());
+  const ratio = () => remaining() / (duration * 1000);
+  const fmt = sec => Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+  const fmtWords = sec => { const m = Math.floor(sec / 60), s = sec % 60; return [m && m + (m > 1 ? ' minutes' : ' minute'), s && s + (s > 1 ? ' seconds' : ' second')].filter(Boolean).join(' ') || '0 seconds'; };
+  const announce = msg => { sr.textContent = ''; setTimeout(() => { sr.textContent = msg; }, 30); };
+
+  function scheduleFinish() {
+    clearTimeout(finishTimer);
+    if (phase === 'running') finishTimer = setTimeout(() => { if (phase === 'running') { remaining() <= 0 ? finish() : scheduleFinish(); } }, remaining() + 5);
+  }
+
+  function start() {
+    if (phase === 'running') return;
+    if (phase === 'done') { flip(true, true); return; }
+    flipStart = -1; startAfterFlip = false;
+    const resumed = accMs > 0;
+    phase = 'running'; segStart = performance.now();
+    scheduleFinish(); armSound(); wake(true); updateUI();
+    announce((resumed ? 'Resumed, ' : 'Started, ') + fmtWords(Math.ceil(remaining() / 1000)) + ' left');
+  }
+  function pause() {
+    if (phase !== 'running') return;
+    accMs = elapsed(); phase = 'paused';
+    clearTimeout(finishTimer); disarmSound(); wake(false); updateUI();
+    announce('Paused, ' + fmtWords(Math.ceil(remaining() / 1000)) + ' left');
+  }
+  const toggle = () => phase === 'running' ? pause() : start();
+  function flip(animate, thenStart) {
+    const r0 = ratio();
+    clearTimeout(finishTimer); disarmSound(); wake(false);
+    phase = 'ready'; accMs = 0; lastSec = -1;
+    if (animate && !reduceMotion) { flipStart = performance.now(); flipFrom = r0; startAfterFlip = !!thenStart; }
+    else { flipStart = -1; if (thenStart) { start(); return; } }
+    updateUI();
+    if (!thenStart) announce('Flipped. Ready, ' + fmtWords(duration));
+  }
+  function finish() {
+    accMs = duration * 1000; phase = 'done';
+    clearTimeout(finishTimer); wake(false);
+    if (!endArmed) playEnd();
+    bus = null; endArmed = false;   // leave a scheduled end sound ringing
+    updateUI(); announce("Time's up!");
+  }
+
+  function setDuration(s) {
+    s = clampDur(+s || DEF.t);
+    const busy = phase !== 'ready';
+    if (busy || s !== duration) flip(busy);
+    duration = s;
+    save('secs', s); syncUrl(); syncChips(); updateUI();
+    announce('Duration ' + fmtWords(s));
+  }
+
+  // ---------- UI sync ----------
+  function updateUI() {
+    const label = phase === 'running' ? 'Pause' : phase === 'paused' ? 'Resume' : phase === 'done' ? 'Again' : 'Start';
+    goBtn.textContent = tbGo.textContent = label;
+    secsIn.value = duration;
+    updateHint();
+  }
+  function syncChips() {
+    chipsEl.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', +b.dataset.s === duration));
+  }
+  const chipLabel = s => s < 60 ? s + 's' : s % 60 === 0 ? s / 60 + ' min' : s % 30 === 0 ? s / 60 + 'm' : fmt(s);
+  presets.forEach((s, i) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = chipLabel(s); b.dataset.s = s;
+    b.title = 'Preset ' + (i + 1) + ' (key ' + (i + 1) + ')';
+    b.addEventListener('click', () => setDuration(s));
+    chipsEl.appendChild(b);
+  });
+
+  function setName(v) {
+    name = v.slice(0, 20);
+    whoClean.innerHTML = '';
+    if (name) { whoClean.append('Spotlight on '); const b = document.createElement('b'); b.textContent = name; whoClean.append(b); }
+    save('name', name); syncUrl(); layout();
+  }
+
+  function setClean(on) {
+    clean = on;
+    document.body.classList.toggle('clean', on);
+    $('cleanBtn').setAttribute('aria-pressed', on);
+    if (on && document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+    closeMenu(); syncUrl(); layout();
+    if (on) showToolbar();
+  }
+
+  function setMuted(on) {
+    muted = on;
+    save('mute', on ? '1' : '0');
+    const btn = $('mute');
+    btn.setAttribute('aria-pressed', on);
+    btn.querySelector('.on').style.display = on ? 'none' : '';
+    btn.querySelector('.off').style.display = on ? '' : 'none';
+    btn.setAttribute('aria-label', on ? 'Unmute (M)' : 'Mute (M)');
+    if (master) master.gain.value = on ? 0 : 1;
+    updateHint();
+  }
+
+  // ---------- full screen ----------
+  const root = document.documentElement;
+  const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement;
+  const fsOk = !!(root.requestFullscreen || root.webkitRequestFullscreen);
+  if (!fsOk) $('fsBtn').hidden = true;
+  function toggleFs() {
+    try {
+      if (fsEl()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      else { const p = (root.requestFullscreen || root.webkitRequestFullscreen).call(root); if (p && p.catch) p.catch(() => {}); }
+    } catch (e) {}
+  }
+  const onFs = () => { $('fsBtn').setAttribute('aria-pressed', !!fsEl()); layout(); };
+  document.addEventListener('fullscreenchange', onFs);
+  document.addEventListener('webkitfullscreenchange', onFs);
+
+  // ---------- wake lock (refusals ignored) ----------
+  let lock = null;
+  function wake(on) {
+    if (on) {
+      if (lock || !navigator.wakeLock || document.visibilityState !== 'visible') return;
+      navigator.wakeLock.request('screen').then(l => { lock = l; l.addEventListener('release', () => { lock = null; }); if (phase !== 'running') wake(false); }).catch(() => {});
+    } else if (lock) { lock.release().catch(() => {}); lock = null; }
+  }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && phase === 'running') wake(true); });
+
+  // ---------- sound (Web Audio, all synthesized) ----------
+  let ac = null, master = null, noiseBuf = null, bus = null, endArmed = false, gestured = false;
+  function getAC() {
+    if (!ac) {
+      try {
+        ac = new (window.AudioContext || window.webkitAudioContext)();
+        const comp = ac.createDynamicsCompressor();
+        master = ac.createGain(); master.gain.value = muted ? 0 : 1;
+        master.connect(comp).connect(ac.destination);
+        noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+        const d = noiseBuf.getChannelData(0);
+        for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        ac.onstatechange = onAudioState;
+      } catch (e) { ac = null; }
+    }
+    return ac;
+  }
+  function unlock() {
+    gestured = true;
+    const a = getAC();
+    if (a && a.state !== 'running') { const p = a.resume(); if (p && p.then) p.then(onAudioState, () => {}); }
+    updateHint();
+  }
+  function onAudioState() {
+    updateHint();
+    if (ac && ac.state === 'running' && phase === 'running' && !bus) armSound();
+  }
+  const audioReady = () => ac && ac.state === 'running';
+  function updateHint() {
+    hintBtn.hidden = !(autostart && !gestured && !audioReady() && sound !== 'off' && !muted && phase !== 'ready');
+  }
+
+  function tone(out, when, o) {
+    const a = ac, osc = a.createOscillator(), g = a.createGain();
+    const end = when + o.attack + o.decay;
+    osc.type = o.type || 'sine';
+    osc.frequency.setValueAtTime(o.freq, when);
+    if (o.freqEnd) osc.frequency.exponentialRampToValueAtTime(o.freqEnd, end);
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.exponentialRampToValueAtTime(o.peak, when + o.attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, end);
+    osc.connect(g).connect(out);
+    osc.start(when); osc.stop(end + 0.05);
+  }
+  function noise(out, when, o) {
+    const a = ac, src = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain();
+    src.buffer = noiseBuf; f.type = o.filter; f.frequency.value = o.f;
+    g.gain.setValueAtTime(o.peak, when);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + o.decay);
+    src.connect(f).connect(g).connect(out);
+    src.start(when); src.stop(when + o.decay + 0.05);
+  }
+  const SYNTH = {
+    chime(out, t) {
+      [880, 660, 990].forEach((f, i) => tone(out, t + i * 0.22, { type: 'triangle', freq: f, attack: 0.02, decay: 0.5, peak: 0.35 }));
+    },
+    bell(out, t) {
+      [[1, .32, 2.1], [2, .16, 1.5], [2.4, .1, 1.2], [3, .08, .9], [4.2, .05, .6], [5.4, .035, .4]]
+        .forEach(([m, p, d]) => tone(out, t, { freq: 740 * m, attack: 0.004, decay: d, peak: p }));
+    },
+    gong(out, t) {
+      [[1, .4, 3.1], [1.52, .26, 2.6], [2.03, .2, 2.2], [2.68, .14, 1.7], [3.36, .1, 1.3], [4.1, .07, .9]]
+        .forEach(([m, p, d]) => tone(out, t, { freq: 98 * m, freqEnd: 98 * m * 0.985, attack: 0.03, decay: d, peak: p }));
+      noise(out, t, { filter: 'lowpass', f: 700, decay: 0.5, peak: 0.25 });
+    },
+    drum(out, t) {
+      let at = t, gap = 0.12;
+      for (let i = 0; i < 12; i++) {
+        const p = 0.07 + i * 0.022;
+        tone(out, at, { freq: 150, freqEnd: 55, attack: 0.003, decay: 0.12, peak: p });
+        noise(out, at, { filter: 'bandpass', f: 1100, decay: 0.05, peak: p * 0.5 });
+        at += gap; gap = Math.max(0.045, gap * 0.9);
+      }
+      at += 0.08;
+      tone(out, at, { freq: 120, freqEnd: 40, attack: 0.004, decay: 0.6, peak: 0.75 });
+      noise(out, at, { filter: 'lowpass', f: 450, decay: 0.3, peak: 0.45 });
+    },
+    off() {},
+    tick(out, t) { tone(out, t, { freq: 1500, attack: 0.002, decay: 0.035, peak: 0.12 }); }
+  };
+  // Schedule the end sound (and warning ticks) on the audio clock, so it plays on time even in a background tab.
+  function armSound() {
+    disarmSound();
+    if (!audioReady() || phase !== 'running') return;
+    const rem = remaining() / 1000, t0 = ac.currentTime;
+    bus = ac.createGain(); bus.connect(master);
+    SYNTH[sound](bus, t0 + rem);
+    endArmed = true;
+    if (tick && warn > 0) for (let k = 1; k <= warn; k++) if (rem - k > 0.02) SYNTH.tick(bus, t0 + rem - k);
+  }
+  function disarmSound() {
+    if (bus) { try { bus.disconnect(); } catch (e) {} }
+    bus = null; endArmed = false;
+  }
+  function playEnd() { if (audioReady()) SYNTH[sound](master, ac.currentTime + 0.01); }
+  function setSound(s) {
+    sound = s; save('sound', s); syncUrl();
+    if (phase === 'running') armSound();
+    updateHint();
+  }
+
+  // ---------- hourglass geometry (logical 300x480) ----------
+  const W = 300, H = 480, CX = 150;
+  const GT = 64, GB = 416, GH = GB - GT;   // inner glass top/bottom
+  const MAXH = 86, NECK = 0.075;           // half width + neck ratio
+  const FILL_TOP = 0.12;                   // air gap at top of upper bulb
+  // One width function drives both the outline and the sand clip.
+  const wAt = y => { const d = Math.abs(y - 0.5) / 0.5; return NECK + (1 - NECK) * Math.pow(Math.sin(d * Math.PI * 0.86), 0.75); };
+  // cumulative area of the upper half, from the cap (y=0) toward the neck
+  const N = 400, cum = new Float64Array(N + 1);
+  for (let i = 1; i <= N; i++) { const y = (i - 0.5) / N * 0.5; cum[i] = cum[i - 1] + wAt(y) * (0.5 / N); }
+  const areaTo = y => cum[Math.round(Math.max(0, Math.min(0.5, y)) / 0.5 * N)];
+  const yForArea = a => { let lo = 0, hi = N; while (lo < hi) { const m = (lo + hi) >> 1; cum[m] < a ? lo = m + 1 : hi = m; } return lo / N * 0.5; };
+  const VOL = areaTo(0.5) - areaTo(FILL_TOP);
+  const px = y => GT + y * GH;
+
+  function glassPath() {
+    ctx.beginPath();
+    const S = 80;
+    for (let i = 0; i <= S; i++) { const y = i / S, x = CX + wAt(y) * MAXH; i ? ctx.lineTo(x, px(y)) : ctx.moveTo(x, px(y)); }
+    for (let i = S; i >= 0; i--) { const y = i / S; ctx.lineTo(CX - wAt(y) * MAXH, px(y)); }
+    ctx.closePath();
+  }
+  function rr(x, y, w, h, r) {
+    ctx.beginPath();
+    if (ctx.roundRect) { ctx.roundRect(x, y, w, h, r); return; }
+    r = Math.min(r, w / 2, h / 2);   // fallback for older Safari
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function drawFrame() {
+    ctx.lineWidth = 5; ctx.strokeStyle = col.ink;
+    [38, 250].forEach(x => { rr(x, 50, 12, 380, 6); ctx.fillStyle = col.woodDark; ctx.fill(); ctx.stroke(); });
+    [22, 418].forEach(y => {
+      const x = 18;
+      rr(x, y, 264, 40, 14); ctx.fillStyle = col.wood; ctx.fill(); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.18)'; rr(x + 14, y + 7, 236, 7, 4); ctx.fill();
+      ctx.fillStyle = col.ink; [x + 22, x + 242].forEach(cx => { ctx.beginPath(); ctx.arc(cx, y + 26, 4, 0, 7); ctx.fill(); });
+    });
+  }
+
+  function drawSand(r, t, flowing) {
+    ctx.save();
+    glassPath(); ctx.clip();
+
+    // upper sand: level found from volume, so it drops faster as the bulb narrows
+    if (r > 0.001) {
+      const ly = yForArea(areaTo(0.5) - r * VOL);
+      const dip = flowing ? Math.min(12, 6 + (1 - r) * 30) : 0;
+      ctx.beginPath();
+      ctx.moveTo(CX - 120, px(ly));
+      ctx.quadraticCurveTo(CX, px(ly) + dip * 2, CX + 120, px(ly));
+      ctx.lineTo(CX + 120, px(0.5) + 2); ctx.lineTo(CX - 120, px(0.5) + 2); ctx.closePath();
+      ctx.fillStyle = col.sand; ctx.fill();
+      ctx.lineWidth = 3; ctx.strokeStyle = col.sandShade; ctx.stroke();
+    }
+
+    // lower sand: mirror of the upper bulb, plus a growing mound
+    const filled = (1 - r) * VOL;
+    let topOfPile = px(1);
+    if (filled > 0.0005) {
+      const ly = 1 - yForArea(filled);
+      const hump = Math.min(26, 6 + (1 - r) * 34);
+      topOfPile = px(ly) - hump;
+      ctx.beginPath();
+      ctx.moveTo(CX - 120, px(ly) + hump * 0.35);
+      ctx.quadraticCurveTo(CX, px(ly) - hump * 1.65, CX + 120, px(ly) + hump * 0.35);
+      ctx.lineTo(CX + 120, px(1) + 4); ctx.lineTo(CX - 120, px(1) + 4); ctx.closePath();
+      ctx.fillStyle = col.sand; ctx.fill();
+      ctx.lineWidth = 3; ctx.strokeStyle = col.sandShade; ctx.stroke();
+      ctx.fillStyle = col.sandShade;
+      for (let i = 0; i < 14; i++) {
+        const gx = CX + Math.sin(i * 12.9898) * 60, gy = px(1) - 8 - Math.abs(Math.cos(i * 4.1)) * Math.max(0, px(1) - topOfPile - 14);
+        ctx.beginPath(); ctx.arc(gx, gy, 2, 0, 7); ctx.fill();
+      }
+    }
+
+    // falling stream with grains and a small splash
+    if (flowing && r > 0.001) {
+      const y0 = px(0.5) - 4, y1 = topOfPile + 4;
+      ctx.strokeStyle = col.sand; ctx.lineWidth = 4; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(CX, y0); ctx.lineTo(CX, y1); ctx.stroke();
+      ctx.fillStyle = col.sand;
+      for (let i = 0; i < 6; i++) {
+        const p = ((t / 380) + i / 6) % 1;
+        ctx.beginPath(); ctx.arc(CX + Math.sin(t / 90 + i * 2) * 3, y0 + (y1 - y0) * p, 2.4, 0, 7); ctx.fill();
+      }
+      for (let i = 0; i < 3; i++) {
+        const p = ((t / 260) + i / 3) % 1;
+        ctx.globalAlpha = 1 - p;
+        ctx.beginPath(); ctx.arc(CX + (i - 1) * 14 * p, y1 - 10 * Math.sin(p * Math.PI), 2.2, 0, 7); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+  }
+
+  function drawGlass(low) {
+    glassPath();
+    ctx.fillStyle = 'rgba(190,225,255,0.10)'; ctx.fill();
+    ctx.save(); glassPath(); ctx.clip();
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(CX - 58, px(0.08)); ctx.quadraticCurveTo(CX - 74, px(0.22), CX - 50, px(0.36)); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(CX - 50, px(0.66)); ctx.quadraticCurveTo(CX - 74, px(0.8), CX - 58, px(0.9)); ctx.stroke();
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(CX + 60, px(0.14)); ctx.lineTo(CX + 66, px(0.2)); ctx.stroke();
+    ctx.restore();
+    glassPath();
+    ctx.lineWidth = 6; ctx.strokeStyle = low ? col.danger : col.ink; ctx.lineJoin = 'round'; ctx.stroke();
+  }
+
+  // ---------- layout: hourglass size from the window ----------
+  function layout() {
+    const vw = document.documentElement.clientWidth || innerWidth, vh = innerHeight;
+    let gh;
+    if (clean) {
+      const availH = vh - 24;
+      const nameF = Math.max(16, Math.min(44, availH * 0.055));
+      whoClean.style.fontSize = nameF + 'px';
+      const nameBlock = name ? nameF * 1.25 + 8 : 0;
+      gh = Math.min((availH - nameBlock - 8) / 1.21, (vw - 32) * 1.6);
+    } else {
+      whoClean.style.fontSize = '';
+      gh = Math.min(260, vw * 0.62, Math.max(150, (vh - 380) / 1.6)) * 1.6;
+    }
+    gh = Math.max(120, Math.floor(gh));
+    root.style.setProperty('--gh', gh + 'px');
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    cv.width = Math.round(gh / 1.6 * dpr); cv.height = Math.round(gh * dpr);
+  }
+  addEventListener('resize', layout);
+
+  // ---------- main loop ----------
+  function frame(t) {
+    if (phase === 'running' && remaining() <= 0) finish();
+    const remMs = remaining();
+    const r = remMs / (duration * 1000);
+    const secLeft = Math.ceil(remMs / 1000);
+    const lowZone = warn > 0 && secLeft <= warn && phase !== 'ready' && phase !== 'done';
+    const low = lowZone && phase === 'running';
+
+    const label = phase === 'done' ? "Time's up!" : fmt(secLeft);
+    if (label !== lastLabel) {
+      timeEl.textContent = label; lastLabel = label;
+      document.title = phase === 'ready' ? 'Sand Timer' : label + ' · Sand Timer';
+    }
+    timeEl.classList.toggle('low', lowZone);
+    timeEl.classList.toggle('done', phase === 'done');
+    if (phase === 'running' && secLeft !== lastSec) {
+      if ((secLeft === 10 && duration > 10) || (secLeft === 5 && duration > 5)) announce(secLeft + ' seconds left');
+      lastSec = secLeft;
+    }
+
+    ctx.setTransform(cv.width / W, 0, 0, cv.height / H, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    ctx.save();
+    ctx.translate(CX, H / 2);
+    let showR = r;
+    if (flipStart >= 0) {
+      const p = Math.min(1, (t - flipStart) / FLIP_MS);
+      const e = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+      // the turning glass empties its top into what becomes the new top
+      ctx.rotate(e * Math.PI);
+      showR = flipFrom * (1 - e);
+      if (p >= 1) {
+        flipStart = -1; ctx.rotate(-Math.PI); showR = 1;
+        if (startAfterFlip) { startAfterFlip = false; start(); }
+      }
+    } else if (!reduceMotion) {
+      if (low) ctx.rotate(Math.sin(t / 60) * 0.03);
+      else if (phase === 'done') ctx.rotate(Math.sin(t / 45) * 0.045 * Math.max(0, Math.sin(t / 400)));
+      else if (phase === 'running') ctx.translate(0, Math.sin(t / 500) * 1.5);
+    }
+    ctx.translate(-CX, -H / 2);
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.beginPath(); ctx.ellipse(CX, 468, 120, 8, 0, 0, 7); ctx.fill();
+    drawSand(showR, t, phase === 'running' && flipStart < 0);
+    drawGlass(low);
+    drawFrame();
+    ctx.restore();
+
+    requestAnimationFrame(frame);
+  }
+
+  // ---------- clean-mode toolbar ----------
+  const toolbar = $('toolbar');
+  let tbTimer = 0;
+  function showToolbar() {
+    if (!clean) return;
+    toolbar.classList.add('show'); document.body.classList.remove('hide-cursor');
+    clearTimeout(tbTimer);
+    tbTimer = setTimeout(() => {
+      if (toolbar.matches(':hover') || toolbar.contains(document.activeElement)) { showToolbar(); return; }
+      toolbar.classList.remove('show'); document.body.classList.add('hide-cursor');
+    }, 2000);
+  }
+  document.addEventListener('pointermove', showToolbar);
+  document.addEventListener('pointerdown', showToolbar);
+
+  // ---------- sound menu ----------
+  const menu = $('soundMenu'), soundBtn = $('soundBtn');
+  function closeMenu() { menu.hidden = true; soundBtn.setAttribute('aria-expanded', 'false'); }
+  soundBtn.addEventListener('click', () => { menu.hidden = !menu.hidden; soundBtn.setAttribute('aria-expanded', String(!menu.hidden)); });
+  document.addEventListener('click', e => { if (!menu.hidden && !e.target.closest('.menu-wrap')) closeMenu(); });
+
+  // ---------- wiring ----------
+  document.addEventListener('pointerdown', unlock, true);
+  document.addEventListener('keydown', unlock, true);
+  goBtn.addEventListener('click', toggle);
+  tbGo.addEventListener('click', toggle);
+  $('flip').addEventListener('click', () => flip(true));
+  $('tbFlip').addEventListener('click', () => flip(true));
+  $('tbExit').addEventListener('click', () => setClean(false));
+  cv.addEventListener('click', toggle);
+  $('minus').addEventListener('click', () => setDuration(duration - 5));
+  $('plus').addEventListener('click', () => setDuration(duration + 5));
+  secsIn.addEventListener('change', () => setDuration(secsIn.value));
+  whoIn.addEventListener('input', () => setName(whoIn.value));
+  $('cleanBtn').addEventListener('click', () => setClean(!clean));
+  $('fsBtn').addEventListener('click', toggleFs);
+  $('mute').addEventListener('click', () => setMuted(!muted));
+  $('soundSel').addEventListener('change', e => { setSound(e.target.value); if (sound !== 'off' && audioReady()) SYNTH[sound](master, ac.currentTime + 0.02); });
+  $('tick').addEventListener('change', e => { tick = e.target.checked; save('tick', tick ? '1' : '0'); if (phase === 'running') armSound(); });
+  $('test').addEventListener('click', () => { const a = getAC(); if (!a) return; const go = () => SYNTH[sound](master, a.currentTime + 0.02); a.state === 'running' ? go() : a.resume().then(go, () => {}); });
+  hintBtn.addEventListener('click', () => { unlock(); hintBtn.hidden = true; });
+
+  const copyBtn = $('copy');
+  copyBtn.addEventListener('click', () => {
+    const url = buildUrl();
+    const done = ok => { copyBtn.textContent = ok ? 'Copied!' : 'Copy failed'; announce(ok ? 'Link copied' : 'Could not copy the link'); setTimeout(() => { copyBtn.textContent = 'Copy link'; }, 1600); };
+    const legacy = () => {
+      const ta = document.createElement('textarea');
+      ta.value = url; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      let ok = false; try { ok = document.execCommand('copy'); } catch (e) {}
+      ta.remove(); done(ok);
+    };
+    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(url).then(() => done(true), legacy);
+    else legacy();
+  });
+
+  const isTyping = el => el && (el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' ||
+    (el.tagName === 'INPUT' && !['checkbox', 'radio', 'button'].includes(el.type)));
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !menu.hidden) { closeMenu(); soundBtn.focus(); return; }
+    if (e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target)) return;
+    const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    if (e.code === 'Space' || k === ' ') { e.preventDefault(); if (!e.repeat) toggle(); }
+    else if (k === 'r') flip(true);
+    else if (k === 'h') setClean(!clean);
+    else if (k === 'f') toggleFs();
+    else if (k === 'm') setMuted(!muted);
+    else if (k === 'ArrowLeft') { e.preventDefault(); setDuration(duration - 5); }
+    else if (k === 'ArrowRight') { e.preventDefault(); setDuration(duration + 5); }
+    else if (/^[1-8]$/.test(k) && presets[+k - 1]) setDuration(presets[+k - 1]);
+    else return;
+    if (clean) showToolbar();
+  });
+  // stop Space from also "clicking" a focused button on key up
+  document.addEventListener('keyup', e => { if ((e.code === 'Space' || e.key === ' ') && !isTyping(e.target)) e.preventDefault(); });
+
+  // ---------- init ----------
+  whoIn.value = name;
+  $('soundSel').value = sound;
+  $('tick').checked = tick;
+  setName(name);
+  setMuted(muted);
+  setClean(clean);
+  syncChips(); updateUI(); syncUrl();
+  timeEl.textContent = lastLabel = fmt(duration);
+  if (autostart) start();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
